@@ -23,12 +23,11 @@ public class EvalCommand implements ICommand {
 
         String joinedArgs = event.getCommand().getJoinedArgs();
         if (joinedArgs.matches("(?i).*System.exit\\(-?\\d+\\);?.*")) {
-            channel.sendMessage("").queue();
+            channel.sendMessage("This is not allowed!").queue();
             return;
         }
         
         String firstArg = args[0].toLowerCase();
-        // TODO: 29.07.2018  
         if (firstArg.matches("drop:\\d+")) {
             String id = firstArg.substring(5);
             if (discordJShell.drop(id)) {
@@ -36,25 +35,31 @@ public class EvalCommand implements ICommand {
             } else {
                 channel.sendMessage("A snippet with this id doesn't exist!").queue();
             }
-        } /*else if (firstArg.equals("variables")) {
-            String variables = discordJShell.getVariables().map((var) -> String.format("%s : %s (%s)", var.name(), var.typeName(), var.id())).collect(Collectors.joining("\n"));
-            channel.sendMessage("Variables (name : type (id)): ```java\n" + variables + "```").queue();
+        } else if (firstArg.equals("variables")) {
+            String variables = discordJShell.getVariables().map((var) -> String.format("§%s\t%s : %s", var.id(), var.name(), var.typeName())).collect(Collectors.joining("\n"));
+            channel.sendMessage("Variables: ```java\n" + variables + "\n```").queue();
         } else if (firstArg.equals("types")) {
-            String types = discordJShell.getTypes().map((type) -> String.format("%s (%s)", type.name(), type.id())).collect(Collectors.joining("\n"));
-            channel.sendMessage("Types (name (id)): ```java\n" + types + "```").queue();
+            String types = discordJShell.getTypes().map((type) -> String.format("$%s\t%s", type.id(), type.name())).collect(Collectors.joining("\n"));
+            channel.sendMessage("Types: ```java\n" + types + "\n```").queue();
         } else if (firstArg.equals("methods")) {
-            String methods = discordJShell.getMethods().map((method) -> String.format("%s (%s)", method.signature(), method.id())).collect(Collectors.joining("\n"));
-            channel.sendMessage("Methods: ```java\n" + methods + "```").queue();
-        }*/ else if (firstArg.matches("show:\\d+")) {
+            String methods = discordJShell.getMethods().map((method) -> String.format("$%s\t%s : %s", method.id(), method.signature(), method.name())).collect(Collectors.joining("\n"));
+            channel.sendMessage("Methods: ```java\n" + methods + "\n```").queue();
+        } else if (firstArg.equals("imports")) {
+            String imports = discordJShell.getImports().map((importSn) -> String.format("$%s\t%s", importSn.id(), importSn.fullname())).collect(Collectors.joining("\n"));
+            channel.sendMessage("Imports: ```java\n" + imports + "\n```").queue();
+        } else if (firstArg.matches("show:\\d+")) {
             Snippet snippet = discordJShell.getSnippet(firstArg.substring(5));
             if (snippet == null) {
-                channel.sendMessage("This snippet does not exist.").queue();
+                channel.sendMessage("A snippet with this id doesn't exist!").queue();
             } else {
                 channel.sendMessage("Snippet " + snippet.id() + ": ```java\n" + snippet.source() + "``` Status: " + discordJShell.getStatus(snippet)).queue();
             }
         } else if (firstArg.equals("reset")) {
             discordJShell.resetJShell();
-            channel.sendMessage("JShell was reset").queue();
+            channel.sendMessage("JShell was reset!").queue();
+        } else if (firstArg.equals("stop")) {
+            discordJShell.stopCurrentEval();
+            channel.sendMessage("Stopped current evaluation!").queue();
         } else {
             Main.execute(() -> channel.sendMessage(discordJShell.eval(joinedArgs)).queue());
         }

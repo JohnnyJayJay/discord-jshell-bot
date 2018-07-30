@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.stream.Stream;
 
+import static jdk.jshell.Snippet.*;
+
 public class DiscordJShell extends ListenerAdapter implements Evaluator {
 
     private JShell jShell;
@@ -21,35 +23,16 @@ public class DiscordJShell extends ListenerAdapter implements Evaluator {
     @Override
     public MessageEmbed eval(String input) {
         List<SnippetEvent> events = jShell.eval(input);
-        EmbedBuilder embed = new EmbedBuilder().appendDescription("Evaluated your input:```java\n").appendDescription(input).appendDescription("```");
+        EmbedBuilder embed = new EmbedBuilder().setTitle("JShell").appendDescription("Evaluated your input:                                     ```java\n").appendDescription(input).appendDescription("```");
         Snippet snippet;
-        String name;
-        String typeName;
-        String value;
+        String name, typeName, value;
+        boolean unresolved = false;
+        boolean rejected = false;
         for (SnippetEvent event : events) {
             String title = null;
             String content;
             StringBuilder out = new StringBuilder();
             snippet = event.snippet();
-            if (event.causeSnippet() != null) {
-                title = "Changed Snippet (" + snippet.id() + ")";
-            } else {
-                switch (event.status()) {
-                    case VALID:
-                        title = "Snippet Creation (" + snippet.id() + ")";
-                        break;
-                    case RECOVERABLE_DEFINED:
-                    case RECOVERABLE_NOT_DEFINED:
-                        title = "Snippet creation with unresolved dependencies (" + snippet.id() + ")";
-                        break;
-                    case OVERWRITTEN:
-                        title = "Snippet overwrite (" + snippet.id() + ")";
-                        break;
-                    case REJECTED:
-                        title = "Snippet rejected (" + snippet.id() + ")";
-                        break;
-                }
-            }
             content = "\nSource: ```java\n" + snippet.source() + "```**Type:** ";
             switch (snippet.kind()) {
                 case VAR:
@@ -116,7 +99,7 @@ public class DiscordJShell extends ListenerAdapter implements Evaluator {
                     content += "method\n";
                     MethodSnippet methodSnippet = (MethodSnippet) snippet;
                     name = methodSnippet.name();
-                    out.append("Created method ").append(name).append(" with signature ").append(methodSnippet.signature()).toString();
+                    out.append("Created method ").append(name).append(" with signature ").append(methodSnippet.signature());
                     break;
                 case EXPRESSION:
                     content += "expression\n";
@@ -134,12 +117,63 @@ public class DiscordJShell extends ListenerAdapter implements Evaluator {
                     }
                     break;
                 case ERRONEOUS:
-                    content += "error/unknown";
-                    jShell.diagnostics(snippet).map((diag) -> diag.getMessage(Locale.GERMANY)).forEach(out::append);
+                    content += "error/unknown\n";
+            }
+
+            if (event.causeSnippet() != null) {
+                title = "Changed Snippet (" + snippet.id() + ")";
+                if ((event.previousStatus() == Status.RECOVERABLE_DEFINED || event.previousStatus() == Status.RECOVERABLE_NOT_DEFINED)
+                        && event.status() == Status.VALID) {
+                    out.append("\nFixed unresolved dependencies");
+                }
+            } else {
+                switch (event.status()) {
+                    case VALID:
+                        title = "Snippet Creation (" + snippet.id() + ")";
+                        break;
+                    case RECOVERABLE_DEFINED:
+                    case RECOVERABLE_NOT_DEFINED:
+                        unresolved = true;
+                        title = "Snippet creation with unresolved dependencies (" + snippet.id() + ")";
+                        out.append("\nwith unresolved references");
+                        break;
+                    case OVERWRITTEN:
+                        title = "Snippet overwrite (" + snippet.id() + ")";
+                        break;
+                    case REJECTED:
+                        rejected = true;
+                        title = "Snippet rejected (" + snippet.id() + ")";
+                        out.append("\nLanguage error:\n");
+                        jShell.diagnostics(snippet).map((diag) -> diag.getMessage(Locale.GERMANY)).forEach(out::append);
+                        break;
+                }
+            }
+
+            if (event.exception() instanceof EvalException) {
+                rejected = true;
+                var exception = (EvalException) event.exception();
+                String message = exception.getMessage();
+                String exceptionClass = exception.getExceptionClassName();
+                out.append("\nException thrown\n").append(exceptionClass).append(": ").append(message);
+                for (var element : exception.getStackTrace())
+                    out.append("\n\tat ").append(element);
+            } else if (event.exception() instanceof UnresolvedReferenceException) {
+                rejected = true;
+                var exception = (UnresolvedReferenceException) event.exception();
+                String message = exception.getMessage();
+                out.append("\nUnresolvedReferenceException: ").append(message);
+                for (var element : exception.getStackTrace())
+                    out.append("\n\tat: ").append(element);
             }
             embed.addField(title, content + "Output:```\n" + out.toString() + "```", true);
         }
-        return embed.setTitle("JShell").setColor(Color.MAGENTA).build();
+        if (rejected)
+            embed.setColor(Color.RED);
+        else if (unresolved)
+            embed.setColor(Color.YELLOW);
+        else
+            embed.setColor(Color.GREEN);
+        return embed.build();
     }
 
     public Stream<MethodSnippet> getMethods() {
@@ -194,6 +228,10 @@ public class DiscordJShell extends ListenerAdapter implements Evaluator {
     public void resetJShell() {
         jShell.close();
         jShell = JShell.create();
+    }
+
+    public void stopCurrentEval() {
+        jShell.stop();
     }
 
     public Snippet getSnippet(String id) {
