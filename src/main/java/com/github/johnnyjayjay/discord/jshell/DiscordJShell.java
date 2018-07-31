@@ -10,8 +10,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.stream.Stream;
 
-import static jdk.jshell.Snippet.*;
-
 public class DiscordJShell extends ListenerAdapter implements Evaluator {
 
     private JShell jShell;
@@ -33,7 +31,7 @@ public class DiscordJShell extends ListenerAdapter implements Evaluator {
             String content;
             StringBuilder out = new StringBuilder();
             snippet = event.snippet();
-            content = "\nSource: ```java\n" + snippet.source() + "```**Type:** ";
+            content = "\nSource: ```java\n" + (snippet.source().length() < 800 ? snippet.source() : "Source is too long to display") + "```**Type:** ";
             switch (snippet.kind()) {
                 case VAR:
                     content += "variable/literal\n";
@@ -120,51 +118,56 @@ public class DiscordJShell extends ListenerAdapter implements Evaluator {
                     content += "error/unknown\n";
             }
 
-            if (event.causeSnippet() != null) {
-                title = "Changed Snippet (" + snippet.id() + ")";
-                if ((event.previousStatus() == Status.RECOVERABLE_DEFINED || event.previousStatus() == Status.RECOVERABLE_NOT_DEFINED)
-                        && event.status() == Status.VALID) {
-                    out.append("\nFixed unresolved dependencies");
-                }
-            } else {
-                switch (event.status()) {
-                    case VALID:
-                        title = "Snippet Creation (" + snippet.id() + ")";
-                        break;
-                    case RECOVERABLE_DEFINED:
-                    case RECOVERABLE_NOT_DEFINED:
-                        unresolved = true;
-                        title = "Snippet creation with unresolved dependencies (" + snippet.id() + ")";
-                        out.append("\nwith unresolved references");
-                        break;
-                    case OVERWRITTEN:
-                        title = "Snippet overwrite (" + snippet.id() + ")";
-                        break;
-                    case REJECTED:
-                        rejected = true;
-                        title = "Snippet rejected (" + snippet.id() + ")";
-                        out.append("\nLanguage error:\n");
-                        jShell.diagnostics(snippet).map((diag) -> diag.getMessage(Locale.GERMANY)).forEach(out::append);
-                        break;
-                }
+            String id = "(" + snippet.id() + ")";
+            switch (event.status()) {
+                case VALID:
+                    switch (event.previousStatus()) {
+                        case VALID:
+                            title = "Snippet Overwrite - New";
+                            break;
+                        case NONEXISTENT:
+                            title = "Snippet Creation";
+                            break;
+                        case RECOVERABLE_DEFINED:
+                        case RECOVERABLE_NOT_DEFINED:
+                            title = "Snippet Change";
+                            out.append("\nFixed unresolved references");
+                    }
+                    break;
+                case RECOVERABLE_DEFINED:
+                case RECOVERABLE_NOT_DEFINED:
+                    title = "Snippet Creation with Unresolved References";
+                    unresolved = true;
+                    out.append("\nwith unresolved references:");
+                    jShell.unresolvedDependencies((DeclarationSnippet) snippet).forEach((dep) -> out.append("\n").append(dep));
+                    break;
+                case OVERWRITTEN:
+                    title = "Snippet Overwrite - Old";
+                    out.append("\nThis snippet was overwritten");
+                    break;
+                case REJECTED:
+                    rejected = true;
+                    title = "Snippet Rejected";
+                    out.append("\nLanguage error:");
+                    jShell.diagnostics(snippet).map((diag) -> diag.getMessage(Locale.GERMANY)).forEach((msg) -> out.append("\n").append(msg));
+                    break;
             }
-
+            title += " " + id;
             if (event.exception() instanceof EvalException) {
                 rejected = true;
                 var exception = (EvalException) event.exception();
                 String message = exception.getMessage();
                 String exceptionClass = exception.getExceptionClassName();
                 out.append("\nException thrown\n").append(exceptionClass).append(": ").append(message);
-                for (var element : exception.getStackTrace())
-                    out.append("\n\tat ").append(element);
+                appendStackTrace(out, exception.getStackTrace());
             } else if (event.exception() instanceof UnresolvedReferenceException) {
                 rejected = true;
                 var exception = (UnresolvedReferenceException) event.exception();
                 String message = exception.getMessage();
                 out.append("\nUnresolvedReferenceException: ").append(message);
-                for (var element : exception.getStackTrace())
-                    out.append("\n\tat: ").append(element);
+                appendStackTrace(out, exception.getStackTrace());
             }
+
             embed.addField(title, content + "Output:```\n" + out.toString() + "```", true);
         }
         if (rejected)
@@ -174,6 +177,16 @@ public class DiscordJShell extends ListenerAdapter implements Evaluator {
         else
             embed.setColor(Color.GREEN);
         return embed.build();
+    }
+
+    private void appendStackTrace(StringBuilder builder, StackTraceElement[] elements) {
+        for (int i = 0; i < elements.length; i++) {
+            if (builder.length() > 400) {
+                builder.append("\n\t...").append(elements.length - i).append(" more");
+                break;
+            }
+            builder.append("\n\tat: ").append(elements[i]);
+        }
     }
 
     public Stream<MethodSnippet> getMethods() {
@@ -213,13 +226,13 @@ public class DiscordJShell extends ListenerAdapter implements Evaluator {
                 ret = "valid and active";
                 break;
             case DROPPED:
-                ret = "dropped / not usable";
+                ret = "dropped";
                 break;
             case OVERWRITTEN:
                 ret = "overwritten";
                 break;
             case REJECTED:
-                ret = "rejected / not usable";
+                ret = "rejected";
                 break;
         }
         return ret;

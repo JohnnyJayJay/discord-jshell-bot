@@ -6,14 +6,8 @@ import java.util.concurrent.Executors;
 
 public class Main {
 
-    private static ExecutorService executorService = Executors.newSingleThreadExecutor();
-
     public static void main(String[] args) throws LoginException, InterruptedException {
         new JShellBot().start();
-    }
-
-    public static void execute(Runnable task) {
-        executorService.execute(task);
     }
 
 }
